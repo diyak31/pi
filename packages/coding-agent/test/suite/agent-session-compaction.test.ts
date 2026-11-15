@@ -54,6 +54,14 @@ function createAssistant(
 	};
 }
 
+/** Give overflow recovery an earlier turn to summarize; with nothing to summarize it is skipped (#12076). */
+function seedSummarizableHistory(harness: Harness): void {
+	harness.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+	harness.sessionManager.appendMessage({ role: "user", content: "earlier request", timestamp: Date.now() - 2000 });
+	const answer = createAssistant(harness, { timestamp: Date.now() - 1000 });
+	harness.sessionManager.appendMessage({ ...answer, content: [{ type: "text", text: "earlier answer" }] });
+}
+
 function useSummaryStreamFn(
 	harness: Harness,
 	summary: string,
@@ -710,6 +718,7 @@ describe("AgentSession compaction characterization", () => {
 		});
 		harnesses.push(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		seedSummarizableHistory(harness);
 		const lengthOverflowMessage = createAssistant(harness, {
 			stopReason: "length",
 			totalTokens: 100,
@@ -806,6 +815,7 @@ describe("AgentSession compaction characterization", () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		seedSummarizableHistory(harness);
 		const overflowMessage = createAssistant(harness, {
 			stopReason: "error",
 			errorMessage: "prompt is too long",

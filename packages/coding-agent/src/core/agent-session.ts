@@ -3206,6 +3206,11 @@ export class AgentSession {
 				return false;
 			}
 
+			// When everything since the last boundary fits in keepRecentTokens, compaction has nothing
+			// to summarize and cannot free space. Omitting the attempt would then end the run silently
+			// (#12076); keep it so its stop reason is reported.
+			if (!prepareCompaction(this.sessionManager.getBranch(), settings)) return false;
+
 			// Persistently omit the selected final attempt before post-run recovery compaction.
 			this._overflowRecoveryAttempted = true;
 			this._omitRecoveryAttempt(assistantMessage);

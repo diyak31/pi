@@ -152,6 +152,16 @@ describe("AgentSession auto-compaction queue resume", () => {
 			errorMessage: "prompt is too long",
 			timestamp: Date.now(),
 		};
+		// Overflow recovery is skipped when there is nothing to summarize (#12076).
+		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+		sessionManager.appendMessage({ role: "user", content: "earlier request", timestamp: Date.now() - 2000 });
+		sessionManager.appendMessage({
+			...overflowMessage,
+			content: [{ type: "text", text: "earlier answer" }],
+			stopReason: "stop",
+			errorMessage: undefined,
+			timestamp: Date.now() - 1000,
+		});
 
 		const runAutoCompactionSpy = vi
 			.spyOn(
