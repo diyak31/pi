@@ -9,7 +9,7 @@ import {
 	InMemoryModelsStore,
 	type Model,
 } from "@earendil-works/pi-ai";
-import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
@@ -439,5 +439,46 @@ describe("createAgentSession with virtual models", () => {
 
 		await session.prompt("again");
 		expect(lastModelChange()).toMatchObject({ provider: "faux", modelId: "small" });
+	});
+
+	describe("threshold compaction after a message no physical model produced", () => {
+		type CompactionInternals = {
+			_checkCompaction: (message: AssistantMessage, skipAbortedCheck?: boolean) => Promise<boolean>;
+			_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
+		};
+
+		/** A virtual selection whose last turn was aborted before routing, so the message names the virtual model. */
+		async function abortedVirtualTurn(userText: string) {
+			const { runtime, virtual } = await createRuntime();
+			const { session } = await resume(runtime);
+			const aborted: AssistantMessage = { ...assistantFrom(virtual, ""), stopReason: "aborted" };
+			session.agent.state.messages = [
+				...session.agent.state.messages,
+				{ role: "user", content: userText, timestamp: Date.now() - 1 },
+				aborted,
+			];
+			const internals = session as unknown as CompactionInternals;
+			const runAutoCompaction = vi.spyOn(internals, "_runAutoCompaction").mockResolvedValue(false);
+			onTestFinished(() => runAutoCompaction.mockRestore());
+			return { internals, aborted, runAutoCompaction };
+		}
+
+		// #12035: the virtual model reports a 0 window, which made every estimate cross the threshold.
+		it("does not compact below the routed model's threshold", async () => {
+			const { internals, aborted, runAutoCompaction } = await abortedVirtualTurn("short");
+
+			await internals._checkCompaction(aborted, false);
+
+			expect(runAutoCompaction).not.toHaveBeenCalled();
+		});
+
+		// #12035: the routed model's window still applies, so a large context compacts.
+		it("compacts above the routed model's threshold", async () => {
+			const { internals, aborted, runAutoCompaction } = await abortedVirtualTurn("x".repeat(400_000));
+
+			await internals._checkCompaction(aborted, false);
+
+			expect(runAutoCompaction).toHaveBeenCalledWith("threshold", false);
+		});
 	});
 });

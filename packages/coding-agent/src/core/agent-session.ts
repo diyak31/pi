@@ -3130,7 +3130,9 @@ export class AgentSession {
 		// physical model that produced the message supplies the limits.
 		const messageModel = this._modelForMessage(assistantMessage);
 		const sameModel = messageModel !== undefined;
-		const contextWindow = (messageModel ?? this.model)?.contextWindow ?? 0;
+		// A message from no known physical model (e.g. an aborted routed turn) falls back to the
+		// model whose limits apply to the conversation, not the virtual selection, which has none.
+		const contextWindow = (messageModel ?? this._limitsModel())?.contextWindow ?? 0;
 
 		// Skip compaction checks if this assistant message is older than the latest
 		// compaction boundary. This prevents a stale pre-compaction usage/error
@@ -3215,6 +3217,8 @@ export class AgentSession {
 		}
 
 		// Case 3: threshold compaction without retry.
+		// An unknown window (0) would make every estimate cross the threshold.
+		if (contextWindow <= 0) return false;
 		// For error messages or all-zero usage messages, estimate from the last valid response.
 		// This ensures sessions that hit persistent API errors (e.g. 529) or malformed zero-usage
 		// responses can still compact and do not reset context accounting.
